@@ -1,19 +1,38 @@
 package com.example.osm;
 
-import android.Manifest;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Canvas;
 import android.os.Bundle;
+import android.os.StrictMode;
 import android.preference.PreferenceManager;
+import android.view.MotionEvent;
+import android.widget.FrameLayout;
+import android.widget.RelativeLayout;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import org.osmdroid.bonuspack.routing.OSRMRoadManager;
+import org.osmdroid.bonuspack.routing.Road;
+import org.osmdroid.bonuspack.routing.RoadManager;
 import org.osmdroid.config.Configuration;
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
+import org.osmdroid.util.GeoPoint;
+import org.osmdroid.views.CustomZoomButtonsController;
 import org.osmdroid.views.MapView;
+import org.osmdroid.views.Projection;
+import org.osmdroid.views.overlay.CopyrightOverlay;
+import org.osmdroid.views.overlay.ItemizedIconOverlay;
+import org.osmdroid.views.overlay.Marker;
+import org.osmdroid.views.overlay.Overlay;
+import org.osmdroid.views.overlay.OverlayItem;
+import org.osmdroid.views.overlay.Polyline;
+import org.osmdroid.views.overlay.compass.CompassOverlay;
+import org.osmdroid.views.overlay.compass.InternalCompassOrientationProvider;
+import org.osmdroid.views.overlay.gestures.RotationGestureOverlay;
+import org.osmdroid.views.overlay.infowindow.InfoWindow;
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider;
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay;
 
@@ -21,8 +40,8 @@ import java.util.ArrayList;
 
 public class MainActivity extends AppCompatActivity{
     private final int REQUEST_PERMISSIONS_REQUEST_CODE = 1;
-    private MapView map = null;
-    private MyLocationNewOverlay mLocationOverlay;
+    private MapView mMapView;
+    private ItemizedIconOverlay<OverlayItem> mMyLocationOverlay;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -31,15 +50,89 @@ public class MainActivity extends AppCompatActivity{
         Context ctx = getApplicationContext();
         Configuration.getInstance().load(ctx, PreferenceManager.getDefaultSharedPreferences(ctx));
 
+        StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
+        StrictMode.setThreadPolicy(policy);
+
         setContentView(R.layout.activity_main);
 
-        map = (MapView) findViewById(R.id.map);
-        map.setTileSource(TileSourceFactory.MAPNIK);
+        final FrameLayout mapContainer = findViewById(R.id.map_container);
 
-        requestPermissionsIfNecessary(new String[] {
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-        });
+        mMapView = new MapView(this);
+        mMapView.setTilesScaledToDpi(true);
+        mapContainer.addView(this.mMapView, new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT,
+                RelativeLayout.LayoutParams.MATCH_PARENT));
+        mMapView.getZoomController().setVisibility(
+                CustomZoomButtonsController.Visibility.SHOW_AND_FADEOUT);
+
+        //Copyright overlay
+        String copyrightNotice = mMapView.getTileProvider().getTileSource().getCopyrightNotice();
+        CopyrightOverlay copyrightOverlay = new CopyrightOverlay(this);
+        copyrightOverlay.setCopyrightNotice(copyrightNotice);
+        mMapView.getOverlays().add(copyrightOverlay);
+
+        // zoom to chosen city
+        mMapView.getController().setZoom(10.);
+        mMapView.getController().setCenter(new GeoPoint(50.0, 19.9));
+
+        // Rotation
+        RotationGestureOverlay mRotationGestureOverlay = new RotationGestureOverlay(mMapView);
+        mRotationGestureOverlay.setEnabled(true);
+        mMapView.setMultiTouchControls(true);
+        mMapView.getOverlays().add(mRotationGestureOverlay);
+
+        // Compass
+        CompassOverlay mCompassOverlay = new CompassOverlay(this, new InternalCompassOrientationProvider(this), mMapView);
+        mCompassOverlay.enableCompass();
+        mMapView.getOverlays().add(mCompassOverlay);
+
+        // Current location
+        MyLocationNewOverlay mLocationOverlay = new MyLocationNewOverlay(new GpsMyLocationProvider(this), mMapView);
+        mLocationOverlay.enableMyLocation();
+        mMapView.getOverlays().add(mLocationOverlay);
+
+        // Adding marker
+        Overlay touchOverlay = new Overlay(this){
+            @Override
+            public void draw(Canvas arg0, MapView arg1, boolean arg2) {
+            }
+            @Override
+            public boolean onSingleTapConfirmed(final MotionEvent e, final MapView mapView) {
+                for(int i=0;i<mMapView.getOverlays().size();i++){
+                    Overlay overlay=mMapView.getOverlays().get(i);
+                    if(overlay instanceof Marker&&((Marker) overlay).getId().equals("defaultMarker")){
+                        mMapView.getOverlays().remove(overlay);
+                        InfoWindow.closeAllInfoWindowsOn(mMapView);
+                    }
+                }
+                Projection proj = mapView.getProjection();
+                GeoPoint loc = (GeoPoint) proj.fromPixels((int)e.getX(), (int)e.getY());
+                String latitude = String.format("%.2f", loc.getLatitude());
+                String longitude = String.format("%.2f", loc.getLongitude());
+                Marker marker = new Marker(mMapView);
+                marker.setId("defaultMarker");
+                marker.setTitle(latitude + ", " + longitude);
+                marker.setPosition(new GeoPoint(loc.getLatitude(), loc.getLongitude()));
+                marker.setDefaultIcon();
+                marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
+                mMapView.getOverlays().add(marker);
+                mMapView.invalidate();
+
+                return true;
+            }
+        };
+        mMapView.getOverlays().add(touchOverlay);
+
+        // Road manager
+        RoadManager roadManager = new OSRMRoadManager(this, "MyOwnUserAgent/1.0");
+        ArrayList<GeoPoint> waypoints = new ArrayList<GeoPoint>();
+        GeoPoint startPoint = new GeoPoint(50.25, 19.0);
+        waypoints.add(startPoint);
+        GeoPoint endPoint = new GeoPoint(50.0, 19.9);
+        waypoints.add(endPoint);
+        Road road = roadManager.getRoad(waypoints);
+        Polyline roadOverlay = RoadManager.buildRoadOverlay(road);
+        mMapView.getOverlays().add(roadOverlay);
+
     }
 
     @Override
@@ -47,7 +140,7 @@ public class MainActivity extends AppCompatActivity{
         super.onResume();
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         Configuration.getInstance().load(this, prefs);
-        map.onResume(); //needed for compass, my location overlays, v6.0.0 and up
+        mMapView.onResume(); //needed for compass, my location overlays, v6.0.0 and up
     }
 
     @Override
@@ -55,7 +148,7 @@ public class MainActivity extends AppCompatActivity{
         super.onPause();
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         Configuration.getInstance().save(this, prefs);
-        map.onPause();  //needed for compass, my location overlays, v6.0.0 and up
+        mMapView.onPause();  //needed for compass, my location overlays, v6.0.0 and up
     }
 
     @Override
