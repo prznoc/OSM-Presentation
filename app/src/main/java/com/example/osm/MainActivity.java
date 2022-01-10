@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.StrictMode;
 import android.preference.PreferenceManager;
@@ -15,9 +16,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import org.osmdroid.bonuspack.routing.GraphHopperRoadManager;
 import org.osmdroid.bonuspack.routing.OSRMRoadManager;
 import org.osmdroid.bonuspack.routing.Road;
 import org.osmdroid.bonuspack.routing.RoadManager;
+import org.osmdroid.bonuspack.routing.RoadNode;
 import org.osmdroid.config.Configuration;
 import org.osmdroid.util.GeoPoint;
 import org.osmdroid.views.CustomZoomButtonsController;
@@ -91,10 +94,14 @@ public class MainActivity extends AppCompatActivity{
         mMapView.getOverlays().add(mLocationOverlay);
 
         // Adding marker
-        Overlay touchOverlay = new Overlay(this){
+        Overlay touchOverlay = new Overlay(){
             @Override
             public void draw(Canvas arg0, MapView arg1, boolean arg2) {
             }
+
+            // TODO
+            // Zmodyfikuj kod dodawania punktów tak aby zamiast kasować poprzedni punkt, mapa
+            // wyświetliła drogę między poprzednim dodanym punktem a bieżącym dodanym punktem
             @Override
             public boolean onSingleTapConfirmed(final MotionEvent e, final MapView mapView) {
                 for(int i=0;i<mMapView.getOverlays().size();i++){
@@ -111,27 +118,48 @@ public class MainActivity extends AppCompatActivity{
                 Marker marker = new Marker(mMapView);
                 marker.setId("defaultMarker");
                 marker.setTitle(latitude + ", " + longitude);
-                marker.setPosition(new GeoPoint(loc.getLatitude(), loc.getLongitude()));
+                marker.setPosition(loc);
                 marker.setDefaultIcon();
                 marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
                 mMapView.getOverlays().add(marker);
                 mMapView.invalidate();
 
                 return true;
+
             }
         };
         mMapView.getOverlays().add(touchOverlay);
 
         // Road manager
         RoadManager roadManager = new OSRMRoadManager(this, "MyOwnUserAgent/1.0");
+        // RoadManager roadManager = new GraphHopperRoadManager();
         ArrayList<GeoPoint> waypoints = new ArrayList<GeoPoint>();
-        GeoPoint startPoint = new GeoPoint(50.25, 19.0);
+        GeoPoint startPoint = new GeoPoint(50.0, 19.9);
         waypoints.add(startPoint);
-        GeoPoint endPoint = new GeoPoint(50.0, 19.9);
+        GeoPoint relayPoint = new GeoPoint(50.25, 19.0);
+        waypoints.add(relayPoint);
+        GeoPoint endPoint = new GeoPoint(51.78, 19.46);
         waypoints.add(endPoint);
         Road road = roadManager.getRoad(waypoints);
         Polyline roadOverlay = RoadManager.buildRoadOverlay(road);
+        // ((OSRMRoadManager)roadManager).setMean(OSRMRoadManager.MEAN_BY_BIKE);
         mMapView.getOverlays().add(roadOverlay);
+
+        /*
+        Drawable nodeIcon = getResources().getDrawable(R.drawable.marker_default);
+        for (int i=0; i<road.mNodes.size(); i++){
+            RoadNode node = road.mNodes.get(i);
+            Marker nodeMarker = new Marker(mMapView);
+            nodeMarker.setSnippet(node.mInstructions);
+            nodeMarker.setSubDescription(Road.getLengthDurationText(this, node.mLength, node.mDuration));
+            Drawable icon = getResources().getDrawable(R.drawable.marker_default);
+            nodeMarker.setImage(icon);
+            nodeMarker.setPosition(node.mLocation);
+            nodeMarker.setIcon(nodeIcon);
+            nodeMarker.setTitle("Step "+i);
+            mMapView.getOverlays().add(nodeMarker);
+        }
+        */
 
     }
 
